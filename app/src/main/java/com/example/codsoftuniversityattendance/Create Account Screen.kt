@@ -56,6 +56,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import androidx.navigation.compose.rememberNavController
+import com.example.codsoftuniversityattendance.models.Status
 import com.example.codsoftuniversityattendance.ui.theme.CodsoftUniversityAttendanceTheme
 import com.vanpra.composematerialdialogs.MaterialDialog
 import com.vanpra.composematerialdialogs.datetime.date.datepicker
@@ -84,6 +85,8 @@ fun CreateAccountScreen(
     var showErrorForDoB by remember { mutableStateOf(false) }
     var showErrorForPhoneNumber by remember { mutableStateOf(false) }
     var isPressed by  remember { mutableStateOf(false) }
+    logInAndCreateViewModel.fetchDirectories()
+    val departments by logInAndCreateViewModel.directories.collectAsState()
     val colorFirstName = animateColorAsState(
         targetValue = if (isPressed && logInAndCreateViewModel.firstName.isEmpty()) {
             showErrorForFirstName = true
@@ -340,15 +343,18 @@ fun CreateAccountScreen(
                             singleLine = true,
 
                             )
+                        var showMenu by remember {
+                            mutableStateOf(false)
+                        }
                         CustomDropDownMenu(
-                            expanded = logInAndCreateViewModel.showGenderMenu,
-                            onExpandedChange = { logInAndCreateViewModel.onShowGenderMenu },
+                            expanded = showMenu,
+                            onExpandedChange = {showMenu = it},
                             selectedItem = logInAndCreateViewModel.sex,
                             onDismissedRequest = {
-                                logInAndCreateViewModel.showGenderMenu = false
+                                showMenu = false
                             },
                             modifier = Modifier.weight(0.5f),
-                            options = logInAndCreateViewModel.genders,
+                            options = listOf("Male","Female"),
                             attachedCompose = {
                                 OutlinedTextField(
                                     readOnly = true,
@@ -362,7 +368,7 @@ fun CreateAccountScreen(
                                         )
                                     },
                                     trailingIcon = {
-                                                   IconButton(onClick = { logInAndCreateViewModel.showGenderMenu = true}) {
+                                                   IconButton(onClick = { showMenu = true}) {
                                                        Icon(imageVector = Icons.Default.ArrowDropDown, contentDescription = null, tint = Color.Green)
                                                        
                                                    }
@@ -447,7 +453,7 @@ fun CreateAccountScreen(
                             logInAndCreateViewModel.showDepartmentMenu = false
                         },
                         modifier = Modifier.fillMaxWidth(),
-                        options = logInAndCreateViewModel.departments,
+                        options = departments,
                         attachedCompose = {
                             OutlinedTextField(
                                 readOnly = true,

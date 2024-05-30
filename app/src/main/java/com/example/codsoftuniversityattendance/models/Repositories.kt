@@ -4,34 +4,6 @@ import com.google.firebase.firestore.FirebaseFirestore
 
 class CourseRepository(private val firestore: FirebaseFirestore) {
 
-    // Predefined courses by department
-    private val coursesByDepartment = mapOf(
-        "Bio-Medical Engineering" to listOf("Biomedical Instrumentation", "Medical Imaging"),
-        "Chemical Engineering" to listOf("Chemical Process Principles", "Chemical Reaction Engineering"),
-        "Civil Engineering" to listOf("Structural Analysis", "Geotechnical Engineering"),
-        "Electrical Engineering" to listOf("Circuit Analysis", "Electro-Magnetics"),
-        "Mechanical Engineering" to listOf("Thermodynamics", "Fluid Mechanics"),
-        "Software Engineering" to listOf("Data Structures", "Operating Systems")
-    )
-
-    fun getCoursesForDepartment(
-        department: String,
-        onSuccess: (List<String>) -> Unit,
-        onFailure: (Exception) -> Unit
-    ) {
-        firestore.collection("departments").document(department).get()
-            .addOnSuccessListener { document ->
-                if (document.exists()) {
-                    val courses = document.get("courses") as? List<String> ?: emptyList()
-                    onSuccess(courses)
-                } else {
-                    onSuccess(emptyList()) // Or handle the case where the department doesn't exist
-                }
-            }
-            .addOnFailureListener { e ->
-                onFailure(e)
-            }
-    }
 
     fun registerForCourse(
         courseId: String,
@@ -90,6 +62,7 @@ class CourseRepository(private val firestore: FirebaseFirestore) {
                 onFailure(e)
             }
     }
+
 }
 
 
@@ -97,27 +70,70 @@ class CourseRepository(private val firestore: FirebaseFirestore) {
 
 class AttendanceRepository(private val firestore: FirebaseFirestore) {
 
-    fun markAttendance(attendance: Attendance, onSuccess: () -> Unit, onFailure: (Exception) -> Unit) {
-        firestore.collection("attendance").add(attendance)
+
+
+    fun getStudentsForCourse(courseId: String, onSuccess: (List<String>) -> Unit, onFailure: (Exception) -> Unit) {
+        firestore.collection("courseRegistrations")
+            .whereEqualTo("courseId", courseId)
+            .get()
+            .addOnSuccessListener { result ->
+                val students = result.map { document -> document.getString("studentEmail") ?: "" }
+                onSuccess(students)
+            }
+            .addOnFailureListener { exception ->
+                onFailure(exception)
+            }
+    }
+
+    fun markAttendance(attendance: Attendance, onSuccess: () -> Unit, onFailure: () -> Unit) {
+        firestore.collection("attendances")
+            .add(attendance)
             .addOnSuccessListener { onSuccess() }
-            .addOnFailureListener { e -> onFailure(e) }
+            .addOnFailureListener { onFailure() }
+    }
+
+    fun getAttendanceRequests(courseId: String, onSuccess: (List<AttendanceRequest>) -> Unit, onFailure: (Exception) -> Unit) {
+        firestore.collection("attendanceRequests")
+            .whereEqualTo("courseId", courseId)
+            .get()
+            .addOnSuccessListener { result ->
+                val requests = result.map { document ->
+                    AttendanceRequest(
+                        courseId = document.getString("courseId") ?: "",
+                        date = document.getString("date") ?: ""
+                    )
+                }
+                onSuccess(requests)
+            }
+            .addOnFailureListener { exception ->
+                onFailure(exception)
+            }
     }
 }
 
-class CourseMaterialRepository(private val firestore: FirebaseFirestore) {
 
-    fun uploadMaterial(material: CourseMaterial, onSuccess: () -> Unit, onFailure: (Exception) -> Unit) {
-        firestore.collection("courseMaterials").add(material)
-            .addOnSuccessListener { onSuccess() }
-            .addOnFailureListener { e -> onFailure(e) }
+
+object Repository {
+    fun getCoursesForStudent(studentId: String): List<Course> {
+        // Mock data
+        return listOf(
+            Course(id = "1", name = "Mathematics"),
+            Course(id = "2", name = "Physics")
+        )
     }
 
-    fun getMaterialsForCourse(courseId: String, onSuccess: (List<CourseMaterial>) -> Unit, onFailure: (Exception) -> Unit) {
-        firestore.collection("courseMaterials").whereEqualTo("courseId", courseId).get()
-            .addOnSuccessListener { snapshot ->
-                val materials = snapshot.documents.map { it.toObject(CourseMaterial::class.java)!! }
-                onSuccess(materials)
-            }
-            .addOnFailureListener { e -> onFailure(e) }
+    fun getMaterialsForCourse(courseName: String): List<Material> {
+        // Mock data
+        return when (courseName) {
+            "1" -> listOf(
+                Material(id = "1", courseId = "1", fileName = "Lecture 1", fileType = "pdf", fileUrl = "https://example.com/lecture1.pdf"),
+                Material(id = "2", courseId = "1", fileName = "Lecture 2", fileType = "pdf", fileUrl = "https://example.com/lecture2.pdf")
+            )
+            "2" -> listOf(
+                Material(id = "3", courseId = "2", fileName = "Lab 1", fileType = "pdf", fileUrl = "https://example.com/lab1.pdf"),
+                Material(id = "4", courseId = "2", fileName = "Lab 2", fileType = "pdf", fileUrl = "https://example.com/lab2.pdf")
+            )
+            else -> emptyList()
+        }
     }
 }

@@ -1,24 +1,39 @@
 package com.example.codsoftuniversityattendance
 
+import android.app.Activity
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.util.Log
+import androidx.activity.result.contract.ActivityResultContract
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.liveData
 import androidx.lifecycle.viewModelScope
 import com.example.codsoftuniversityattendance.models.Attendance
 import com.example.codsoftuniversityattendance.models.AttendanceRepository
-import com.example.codsoftuniversityattendance.models.CourseMaterial
-import com.example.codsoftuniversityattendance.models.CourseMaterialRepository
+import com.example.codsoftuniversityattendance.models.Course
+
 import com.example.codsoftuniversityattendance.models.CourseRepository
+
+import com.example.codsoftuniversityattendance.models.FileMetadata
+import com.example.codsoftuniversityattendance.models.UserProfile
 import com.google.firebase.FirebaseNetworkException
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseAuthInvalidCredentialsException
 import com.google.firebase.auth.FirebaseAuthInvalidUserException
+import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.Query
+import com.google.firebase.storage.FirebaseStorage
+import com.google.firebase.storage.StorageReference
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import java.text.SimpleDateFormat
@@ -28,8 +43,14 @@ import java.util.UUID
 
 
 class LogInAndCreateViewModel : ViewModel() {
+
+
     private val auth: FirebaseAuth by lazy { FirebaseAuth.getInstance() }
     private val fireStore: FirebaseFirestore by lazy { FirebaseFirestore.getInstance() }
+    private val storage: FirebaseStorage by lazy {FirebaseStorage.getInstance()}
+    private val storageRef: StorageReference by lazy { storage.reference}
+
+
 
     val logInSuccess = MutableStateFlow(false)
     val updateSuccess = MutableStateFlow(false)
@@ -41,19 +62,10 @@ class LogInAndCreateViewModel : ViewModel() {
     val updateErrorMessage = MutableStateFlow("")
     val addCourseStatusMessage = MutableStateFlow("")
     val registrationErrorMessage = MutableStateFlow("")
+    var emailAsId by mutableStateOf("")
 
-    val genders = listOf("Male", "Female")
-    var showGenderMenu by mutableStateOf(false)
-    val onShowGenderMenu = { _: Boolean -> showGenderMenu = !showGenderMenu }
 
-    var showCourses by mutableStateOf(false)
-    val onShowCourses = { _: Boolean -> showCourses = !showCourses }
-    var selectedCourse by mutableStateOf("")
-    var courses = MutableStateFlow<List<String>>(emptyList())
-    var registeredCourses = MutableStateFlow<List<String>>(emptyList())
 
-    val departments = listOf("Bio-Medical Engineering","Chemical Engineering", "Civil Engineering",
-        "Electrical And Computer Engineering","Mechanical Engineering", "Software Engineering", "Computer Science")
     var showDepartmentMenu by mutableStateOf(false)
     val onShowDepartmentMenu = { _: Boolean -> showDepartmentMenu = !showDepartmentMenu }
 
@@ -73,6 +85,7 @@ class LogInAndCreateViewModel : ViewModel() {
     var emailForCreate by mutableStateOf("")
     var createdAs by mutableStateOf("")
     val resetStatusMessage = MutableStateFlow("")
+    var currentHomeDepartment by mutableStateOf("")
 
     var firstNameForUpdate by mutableStateOf("")
     var middleNameForUpdate by mutableStateOf("")
@@ -83,63 +96,83 @@ class LogInAndCreateViewModel : ViewModel() {
     var dateOfBirthForUpdate by mutableStateOf("")
     var phoneNumberForUpdate by mutableStateOf("")
 
+
+    var attendanceDate by mutableStateOf("")
+    var selectedCourseForAttendance by mutableStateOf("")
+
+
+
     val courseRegistrationSuccess = MutableStateFlow(false)
     val courseDropSuccess = MutableStateFlow(false)
 
     val courseRepository = CourseRepository(FirebaseFirestore.getInstance())
+    private val _registeredCourses = MutableStateFlow<List<String>>(emptyList())
+    var selectedCourse by mutableStateOf("")
+    val registeredCourses: StateFlow<List<String>> get() = _registeredCourses
 
-    fun loadCoursesForDepartment(userProfile: UserProfile) {
-        val department = userProfile.department ?: return
-
-        courseRepository.getCoursesForDepartment(department, { courseList ->
-            courses.value = courseList
-        }, {
-            // Handle failure
-        })
+    fun registerForCourse(courseName: String) {
+        viewModelScope.launch {
+            try {
+                val userRef = fireStore.collection("users").document(emailAsId)
+                userRef.update("registeredCourses", FieldValue.arrayUnion(courseName)).await()
+                fetchRegisteredCourses(emailAsId)
+            } catch (e: Exception) {
+                // Handle error
+            }
+        }
     }
 
-    fun registerForCourse(id: String) {
-        val courseId = courses.value.find { it == selectedCourse } ?: return
-        val studentId = auth.currentUser?.uid ?: return
+    fun fetchRegisteredCourses(userId: String) {
+        viewModelScope.launch {
+            try {
+                val userSnapshot = fireStore.collection("users").document(userId).get().await()
+                val courses = userSnapshot.get("registeredCourses") as? List<String> ?: emptyList()
+                _registeredCourses.value = courses
+                courseRegistrationSuccess.value = true
+            } catch (e: Exception) {
+                // Handle error
+            }
+        }
+    }
 
-        courseRepository.registerForCourse(courseId, studentId, {
+    fun registerForCourse(courses: List<String>, selectedCourse: String) {
+        val courseId = courses.find { it == selectedCourse } ?: return
+        courseRepository.registerForCourse(courseId,emailAsId , {
             courseRegistrationSuccess.value = true
-            loadRegisteredCourses(id)
+            loadRegisteredCourses()
         }, {
             courseRegistrationSuccess.value = false
         })
     }
 
-    fun dropCourse(courseId: String, id: String) {
+    fun dropCourse(courseName: String) {
 
 
-        courseRepository.dropCourse(courseId, id, {
+        courseRepository.dropCourse(courseName, emailAsId,{
             courseDropSuccess.value = true
-            loadRegisteredCourses(id)
+            loadRegisteredCourses()
         }, {
             courseDropSuccess.value = false
         })
     }
 
-    fun loadRegisteredCourses(id: String) {
+    fun loadRegisteredCourses() {
 
-        courseRepository.getRegisteredCourses(id, { courseList ->
-            registeredCourses.value = courseList
+        courseRepository.getRegisteredCourses(emailAsId, { courseList ->
+            _registeredCourses.value = courseList
         }, {
             // Handle failure
         })
     }
 
-    private val materialRepository = CourseMaterialRepository(FirebaseFirestore.getInstance())
     private val attendanceRepository = AttendanceRepository(FirebaseFirestore.getInstance())
     val attendanceMarkedSuccess = MutableStateFlow(false)
 
-    fun markAttendance(courseId: String) {
-        val studentId = auth.currentUser?.uid ?: return
+    fun markAttendance(courseId: String, b: Boolean) {
         val attendance = Attendance(
             attendanceId = UUID.randomUUID().toString(),
             courseId = courseId,
-            studentId = studentId,
+            studentId = emailAsId,
             date = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date()),
             status = true
         )
@@ -150,19 +183,7 @@ class LogInAndCreateViewModel : ViewModel() {
         })
     }
 
-    fun uploadCourseMaterial(courseId: String, title: String, url: String) {
-        val material = CourseMaterial(
-            materialId = UUID.randomUUID().toString(),
-            courseId = courseId,
-            title = title,
-            url = url
-        )
-        materialRepository.uploadMaterial(material, {
-            // Handle success
-        }, {
-            // Handle failure
-        })
-    }
+
 
     fun createAccount(
         firstName: String,
@@ -181,11 +202,6 @@ class LogInAndCreateViewModel : ViewModel() {
             .addOnCompleteListener { task ->
                 if (task.isSuccessful) {
                     registrationSuccess.value = true
-                    val userId = auth.currentUser?.uid ?: run {
-                        registrationSuccess.value = false
-                        Log.d(TAG, "User ID not found.")
-                        return@addOnCompleteListener
-                    }
                     val user = hashMapOf(
                         "firstName" to firstName,
                         "middleName" to middleName,
@@ -196,11 +212,13 @@ class LogInAndCreateViewModel : ViewModel() {
                         "sex" to sex,
                         "dateOfBirth" to dateOfBirth,
                         "department" to department,
-                        "phoneNumber" to phoneNumber
+                        "phoneNumber" to phoneNumber,
+                        "password" to password
                     )
 
-                    fireStore.collection("users").document(userId).set(user)
+                    fireStore.collection("users").document(email).set(user)
                         .addOnSuccessListener {
+                            registrationErrorMessage.value = "Registration success"
                             Log.d(TAG, "Registration success")
                         }
                         .addOnFailureListener { e ->
@@ -214,6 +232,48 @@ class LogInAndCreateViewModel : ViewModel() {
                 }
             }
     }
+
+
+
+
+
+
+    private val _uploadProgress = MutableStateFlow(0)
+    val uploadProgress: StateFlow<Int>get() = _uploadProgress
+
+    fun uploadFile(uri: Uri, department: String, course: String, fileType: String, fileName: String, onSuccess: (String) -> Unit, onFailure: () -> Unit) {
+        viewModelScope.launch {
+            try {
+                val storageRef = storage.reference.child("files/$department/$course/$fileType/$fileName")
+                val uploadTask = storageRef.putFile(uri)
+
+                uploadTask.addOnProgressListener { taskSnapshot ->
+                    val progress = (100.0 * taskSnapshot.bytesTransferred / taskSnapshot.totalByteCount).toInt()
+                    _uploadProgress.value = progress
+                }.await()
+
+                val downloadUrl = storageRef.downloadUrl.await()
+                addFileToFirestore(department, course, fileType, fileName, downloadUrl.toString())
+                onSuccess(downloadUrl.toString())
+            } catch (e: Exception) {
+                onFailure()
+            } finally {
+                _uploadProgress.value = 0
+            }
+        }
+    }
+
+    private fun addFileToFirestore(departmentName: String, courseName: String, fileType: String, fileName: String, fileUrl: String) {
+        val fileData = hashMapOf(
+            "name" to fileName,
+            "url" to fileUrl,
+            "timestamp" to FieldValue.serverTimestamp()
+        )
+        fireStore.collection("departments").document(departmentName)
+            .collection("courses").document(courseName)
+            .collection(fileType).document(fileName).set(fileData)
+    }
+
 
     fun loginUser(email: String, password: String = "pseudo password", onSuccess: (String) -> Unit, onFailure: (String) -> Unit) {
         auth.signInWithEmailAndPassword(
@@ -252,7 +312,6 @@ class LogInAndCreateViewModel : ViewModel() {
     private suspend fun getUserProfile(): UserProfile? {
         val user = getCurrentUser()
         user?.let {
-            val userId = it.uid
             val email = it.email ?: ""
             val basicProfile = UserProfile(
                 firstName = it.displayName ?: "",
@@ -260,7 +319,7 @@ class LogInAndCreateViewModel : ViewModel() {
             )
 
             return try {
-                val documentSnapshot = fireStore.collection("users").document(userId).get().await()
+                val documentSnapshot = fireStore.collection("users").document(it.email?:"").get().await()
                 if (documentSnapshot.exists()) {
                     val userProfile = documentSnapshot.toObject(UserProfile::class.java)
                     userProfile?.copy(email = email) // Ensure email is updated
@@ -310,12 +369,9 @@ class LogInAndCreateViewModel : ViewModel() {
         sex: String,
         dateOfBirth: String,
         department: String,
-        phoneNumber: String
+        phoneNumber: String,
+        email: String
     ) {
-        val userId = auth.currentUser?.uid ?: run {
-            Log.d(TAG, "User ID not found.")
-            return
-        }
 
         val updatedUser = hashMapOf(
             "firstName" to firstName,
@@ -328,7 +384,7 @@ class LogInAndCreateViewModel : ViewModel() {
             "phoneNumber" to phoneNumber
         )
 
-        fireStore.collection("users").document(userId).update(updatedUser as Map<String, Any>)
+        fireStore.collection("users").document(email).update(updatedUser as Map<String, Any>)
             .addOnSuccessListener {
                 Log.d(TAG, "Profile updated successfully")
                 updateSuccess.value = true
@@ -342,24 +398,181 @@ class LogInAndCreateViewModel : ViewModel() {
             }
     }
 
+    private fun saveFileMetadata(url: String, fileType: String, department: String, courseId: String, onSuccess: (String) -> Unit, onFailure: (Exception) -> Unit) {
+        val fileMetadata = hashMapOf(
+            "url" to url,
+            "type" to fileType,
+            "department" to department,
+            "courseId" to courseId,
+            "timestamp" to System.currentTimeMillis()
+        )
+
+        fireStore.collection("files")
+            .add(fileMetadata)
+            .addOnSuccessListener { documentReference ->
+                onSuccess(documentReference.id)
+            }
+            .addOnFailureListener { e ->
+                onFailure(e)
+            }
+    }
+
+
+    var sc by mutableStateOf("")
+    var sd by mutableStateOf("")
+
+
+
+
+
+
+    private val _directories = MutableStateFlow<List<String>>(emptyList())
+    val directories: StateFlow<List<String>> get() = _directories
+
+    private val _subdirectories = MutableStateFlow<List<String>>(emptyList())
+    val subdirectories: StateFlow<List<String>> get() = _subdirectories
+
+    fun fetchDirectories() {
+        viewModelScope.launch {
+            try {
+                val result = storage.reference.child("files/").listAll().await()
+                val directories = result.prefixes.map { it.name }
+                _directories.value = directories
+            } catch (e: Exception) {
+                // Handle error
+            }
+        }
+    }
+
+    fun fetchSubdirectories(directoryName: String) {
+        viewModelScope.launch {
+            try {
+                val result = storage.reference.child("files/$directoryName").listAll().await()
+                val subdirectories = result.prefixes.map { it.name }
+                _subdirectories.value = subdirectories
+            } catch (e: Exception) {
+                // Handle error
+            }
+        }
+    }
+
+    fun addDirectory(directoryName: String) {
+        viewModelScope.launch {
+            try {
+                val directoryRef = storage.reference.child("files/$directoryName/")
+                directoryRef.child(".keep").putBytes(byteArrayOf()).await()
+                fetchDirectories() // Refresh the directory list
+            } catch (e: Exception) {
+                // Handle error
+            }
+        }
+    }
+
+    fun addSubdirectory(directoryName: String, subdirectoryName: String) {
+        viewModelScope.launch {
+            try {
+                val subdirectoryRef = storage.reference.child("files/$directoryName/$subdirectoryName/")
+                subdirectoryRef.child(".keep").putBytes(byteArrayOf()).await()
+                fetchSubdirectories(directoryName) // Refresh the subdirectory list
+            } catch (e: Exception) {
+                // Handle error
+            }
+        }
+    }
+
+
+    ////////////////////////////////////////////////////
+
+
+    // Function to determine file type based on file extension
+    private val _courseFilesTypeNameMap = MutableStateFlow<Map<String, Map<String, Map<String, String>>>>(emptyMap())
+    val courseFilesTypeNameMap: StateFlow<Map<String, Map<String, Map<String, String>>>> = _courseFilesTypeNameMap
+
+    private val _courseFilesMap = MutableStateFlow<Map<String, StorageReference>>(emptyMap())
+    val courseFilesMap: StateFlow<Map<String, StorageReference>> = _courseFilesMap
+
+    private fun getFileType(fileName: String): String {
+        val fileExtension = fileName.substringAfterLast('.')
+        return when (fileExtension.lowercase(Locale.ROOT)) {
+            "mp4", "mov", "avi" -> "Videos"
+            "jpg", "jpeg", "png", "gif" -> "Images"
+            "txt", "pdf", "doc", "docx" -> "Text Files"
+            else -> "Other"
+        }
+    }
+
+    fun fetchStorageReferences(courses: List<String>, department: String) {
+        _courseFilesMap.value = courses.associateWith { course ->
+            storage.reference.child("files/$department/$course")
+        }
+    }
+
+    fun fetchFilesForCourses() {
+        viewModelScope.launch {
+            try {
+                val result = fetchDownloadURIs(_courseFilesMap.value)
+                _courseFilesTypeNameMap.value = result
+                Log.d(TAG, "Files fetched successfully: $result")
+            } catch (e: Exception) {
+                Log.e(TAG, "Error fetching files: ${e.message}", e)
+            }
+        }
+    }
+
+    private suspend fun fetchDownloadURIs(courseFilesMap: Map<String, StorageReference>): Map<String, Map<String, Map<String, String>>> {
+        val resultMap = mutableMapOf<String, Map<String, Map<String, String>>>()
+
+        for ((courseName, storageRef) in courseFilesMap) {
+            val courseMap = mutableMapOf<String, Map<String, String>>()
+            val items = storageRef.listAll().await()
+
+            items.items.groupBy { getFileType(it.name) }.forEach { (fileType, storageItems) ->
+                val fileMap = storageItems.associate { item ->
+                    val downloadUrl = item.downloadUrl.await()
+                    item.name to downloadUrl.toString()
+                }
+                courseMap[fileType] = fileMap
+            }
+
+            resultMap[courseName] = courseMap
+        }
+
+        return resultMap
+    }
+
+    val studentsList = MutableStateFlow<List<String>>(emptyList())
+
+    fun fetchStudentsForCourse(courseId: String) {
+        attendanceRepository.getStudentsForCourse(courseId, { students ->
+            studentsList.value = students
+        }, { exception ->
+            // Handle the error, e.g., log it or show a message
+        })
+    }
+
+    fun sendAttendance(courseId: String, date: String, status: Boolean) {
+        studentsList.value.forEach { studentEmail ->
+            val attendance = Attendance(
+                attendanceId = UUID.randomUUID().toString(),
+                courseId = courseId,
+                studentId = studentEmail,
+                date = date,
+                status = status
+            )
+            attendanceRepository.markAttendance(attendance, {
+                attendanceMarkedSuccess.value = true
+            }, {
+                attendanceMarkedSuccess.value = false
+            })
+        }
+    }
+
     companion object {
         private const val TAG = "LogInAndCreateViewModel"
     }
 }
 
-enum class Status {
-    Student, Lecturer
-}
 
-data class UserProfile(
-    var firstName: String = "",
-    val middleName: String = "",
-    var lastName: String = "",
-    var studentId: String = "",
-    var email: String = "",
-    var createdFor: String = "",
-    var sex: String = "",
-    var department: String = "",
-    var dateOfBirth: String = "",
-    var phoneNumber: String = ""
-)
+
+
+

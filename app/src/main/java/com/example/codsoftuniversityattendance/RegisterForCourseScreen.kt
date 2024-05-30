@@ -1,6 +1,7 @@
 package com.example.codsoftuniversityattendance
 
 import android.widget.Toast
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -26,6 +27,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -45,14 +49,10 @@ fun RegisterForCourse(logInAndCreateViewModel: LogInAndCreateViewModel = viewMod
     // Load courses when the screen is displayed
 
 
-    val courses by logInAndCreateViewModel.courses.collectAsState()
-    val registrationSuccess by logInAndCreateViewModel.courseRegistrationSuccess.collectAsState()
+    val courses by logInAndCreateViewModel.subdirectories.collectAsState()
+    val registrationMessage by logInAndCreateViewModel.registrationErrorMessage.collectAsState()
+    val registeredCourses by logInAndCreateViewModel.registeredCourses.collectAsState()
 
-    if (registrationSuccess) {
-        Toast.makeText(context, "Registration successful!", Toast.LENGTH_SHORT).show()
-       // logInAndCreateViewModel.courseRegistrationSuccess.value = false
-
-    }
 
     Scaffold(
         topBar = {
@@ -82,12 +82,17 @@ fun RegisterForCourse(logInAndCreateViewModel: LogInAndCreateViewModel = viewMod
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            var showCourses by remember {mutableStateOf(false)}
+            Text(text = registrationMessage,
+                color = Color.Green)
 
+            Spacer(modifier = Modifier.height(50.dp))
             CustomDropDownMenu(
-                expanded = logInAndCreateViewModel.showCourses,
-                onExpandedChange = { logInAndCreateViewModel.showCourses = it },
+                expanded = showCourses,
+                onExpandedChange = { showCourses = it
+                                   },
                 selectedItem = logInAndCreateViewModel.selectedCourse,
-                onDismissedRequest = { logInAndCreateViewModel.showCourses = false },
+                onDismissedRequest = { showCourses = false },
                 modifier = Modifier.fillMaxWidth(),
                 options = courses,
                 attachedCompose = {
@@ -95,9 +100,9 @@ fun RegisterForCourse(logInAndCreateViewModel: LogInAndCreateViewModel = viewMod
                         readOnly = true,
                         value = logInAndCreateViewModel.selectedCourse,
                         onValueChange = { },
-                        label = {},
+                        label = { Text(text = "select Course")},
                         trailingIcon = {
-                            IconButton(onClick = { logInAndCreateViewModel.showCourses = true }) {
+                            IconButton(onClick = { showCourses = true }) {
                                 Icon(imageVector = Icons.Default.ArrowDropDown, contentDescription = null, tint = Color.Green)
                             }
                         },
@@ -113,7 +118,16 @@ fun RegisterForCourse(logInAndCreateViewModel: LogInAndCreateViewModel = viewMod
 
             Spacer(modifier = Modifier.height(100.dp))
 
-            Button(onClick = { logInAndCreateViewModel.registerForCourse(logInAndCreateViewModel.studentIdForUpdate) }) {
+            Button(onClick = {
+                if (logInAndCreateViewModel.selectedCourse !in registeredCourses) {
+                    logInAndCreateViewModel.registerForCourse(
+                    selectedCourse = logInAndCreateViewModel.selectedCourse,
+                    courses = courses)
+                }
+                else {
+                    logInAndCreateViewModel.registrationErrorMessage.value = "you have already registered for this course"
+                }
+            }) {
                 Text(text = "Register")
             }
         }

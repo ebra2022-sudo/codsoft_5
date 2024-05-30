@@ -19,9 +19,12 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.BottomAppBar
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -31,13 +34,17 @@ import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextField
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.livedata.observeAsState
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -47,16 +54,26 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
+import com.example.codsoftuniversityattendance.AddDirectoryScreen
+import com.example.codsoftuniversityattendance.Department
+import com.example.codsoftuniversityattendance.FileUploadScreen
+import com.example.codsoftuniversityattendance.HomeContentStudent
 import com.example.codsoftuniversityattendance.LogInAndCreateViewModel
 import com.example.codsoftuniversityattendance.R
 import com.example.codsoftuniversityattendance.Screens
+import com.vanpra.composematerialdialogs.MaterialDialog
+import com.vanpra.composematerialdialogs.datetime.date.datepicker
+import com.vanpra.composematerialdialogs.rememberMaterialDialogState
 import kotlinx.coroutines.launch
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -79,6 +96,16 @@ fun HomeScreenForLecturer(
         logInAndCreateViewModel.departmentForUpdate = user?.department ?: ""
         logInAndCreateViewModel.phoneNumberForUpdate = user?.phoneNumber ?: ""
     }
+
+    val departments = listOf(
+        Department("Biomedical Engineering", R.raw.biomedical_engineering),
+        Department("Electrical And Computer Engineering", R.raw.electrical_engineering),
+        Department("Computer Science", R.raw.computer_science),
+        Department("Mechanical Engineering", R.raw.mechanical_engineering),
+        Department("Chemical Engineering", R.raw.chemical_engineering),
+        Department("Software Engineering", R.raw.software_engineering),
+        Department("Civil Engineering", R.raw.civil_engineering),
+    )
 
     var title by remember {
         mutableStateOf("Welcome, ${userProfile?.firstName ?: ""}")
@@ -224,14 +251,14 @@ fun HomeScreenForLecturer(
                         }
                         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp),
                             modifier = Modifier.clickable {
-                                title = "Resources"
+                                title = "Upload file"
                                 currentContent = Contents.ShareResource}) {
                             Icon(
                                 painter = painterResource(id = R.drawable.bookshelf),
                                 contentDescription = null,
                                 tint = Color(0xFFEA80FC)
                             )
-                            Text("Resources")
+                            Text("Upload file")
                         }
                         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp),
                             modifier = Modifier.clickable {
@@ -246,14 +273,14 @@ fun HomeScreenForLecturer(
                         }
                         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp),
                             modifier = Modifier.clickable {
-                                title = "My Courses"
-                                currentContent = Contents.Roster }) {
+                                title = "Manage courses"
+                                currentContent = Contents.ManageCourses}) {
                             Icon(
                                 painter = painterResource(id = R.drawable.library),
                                 contentDescription = null,
                                 tint = Color.Green
                             )
-                            Text("My Courses")
+                            Text("Manage Courses")
                         }
                     }
                 }
@@ -262,56 +289,137 @@ fun HomeScreenForLecturer(
             Box(modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)) {
+                var numberOfColumns by remember {
+                    mutableIntStateOf(1)
+                }
+                val courses by logInAndCreateViewModel.subdirectories.collectAsState()
+
                 when (currentContent) {
-                    Contents.Home -> HomeContent()
-                    Contents.Attendance -> AttendanceContent()
-                    Contents.ShareResource -> ResourceContent()
-                    Contents.Roster -> MyCourseContent()
+                    Contents.ShareResource -> FileUploadScreen(viewModel = logInAndCreateViewModel)
+                    Contents.ManageCourses -> AddDirectoryScreen(viewModel = logInAndCreateViewModel)
+                    Contents.Home -> HomeContentStudent(
+                        departmentMedia = departments,
+                        currentCourses = courses,
+                        numberOfColumns = numberOfColumns,
+                        viewModel = logInAndCreateViewModel
+                    ) {
+
+                        numberOfColumns = if (numberOfColumns == 1) 2 else 1
+
+                    }
+                    Contents.Attendance -> SendAttendanceScreen(courses = courses, viewModel = logInAndCreateViewModel)
                 }
             }
         }
     }
-
 }
-
-
 
 
 @Composable
-fun HomeContent(modifier: Modifier = Modifier) {
-    Column(modifier = Modifier
-        .fillMaxSize()
-        .then(modifier)) {
-        Text(text = "This is Home content")
+fun SendAttendanceScreen(
+    courses: List<String>,
+    viewModel: LogInAndCreateViewModel
+) {
+    val dateDialogState = rememberMaterialDialogState()
+    var pickedDate by remember { mutableStateOf(LocalDate.now()) }
+    val formattedDate by remember {
+        derivedStateOf {
+            DateTimeFormatter
+                .ofPattern("EEE, d MMM yyyy")
+                .format(pickedDate)
+        }
+    }
 
+    MaterialDialog(
+        dialogState = dateDialogState,
+        buttons = {
+            positiveButton(text = "Ok") {
+                viewModel.attendanceDate = formattedDate
+                LocalDate.of(pickedDate.year, pickedDate.month, pickedDate.dayOfMonth)
+            }
+            negativeButton(text = "Cancel")
+        }
+    ) {
+        datepicker(
+            initialDate = LocalDate.now(),
+            title = "Pick a date"
+        ) { localDate ->
+            pickedDate = localDate
+        }
     }
-}
-@Composable
-fun ResourceContent(modifier: Modifier = Modifier) {
-    Column(modifier = Modifier
-        .fillMaxSize()
-        .then(modifier)) {
-        Text(text = "This is resource content")
+    var show by remember {
+        mutableStateOf(false)
     }
-}
-@Composable
-fun AttendanceContent(modifier: Modifier = Modifier) {
-    Column(modifier = Modifier
-        .fillMaxSize()
-        .then(modifier)) {
-        Text(text ="This is Attendance content")
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+    ) {
+        // Course Selection
+        Text(
+            text = "Select Course:",
+            style = TextStyle(fontSize = 16.sp, fontWeight = FontWeight.Bold),
+            modifier = Modifier
+                .padding(bottom = 8.dp)
+                .clickable {show = true }
+        )
+        DropdownMenu(
+            expanded = show,
+            onDismissRequest = {show = !show },
+            modifier = Modifier.padding(bottom = 16.dp)
+        ) {
+            courses.forEach { course ->
+                DropdownMenuItem(onClick = {
+                    viewModel.selectedCourseForAttendance = course
+                }, text = {Text(text = course)})
+            }
+        }
+        Text(
+            text = "Selected Course: ${viewModel.selectedCourseForAttendance}",
+            style = TextStyle(fontSize = 16.sp),
+            modifier = Modifier.padding(bottom = 16.dp)
+        )
 
+        // Date Selection
+        Text(
+            text = "Select Date:",
+            style = TextStyle(fontSize = 16.sp, fontWeight = FontWeight.Bold),
+            modifier = Modifier.padding(bottom = 8.dp).clickable { dateDialogState.show() }
+        )
+        TextField(
+            value = viewModel.attendanceDate,
+            readOnly = true,
+            onValueChange = {},
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 16.dp)
+        )
+
+        // Send Attendance Button
+        Button(
+            onClick = {
+                viewModel.sendAttendance(
+                courseId = viewModel.selectedCourseForAttendance,
+                date = viewModel.attendanceDate,
+                status = false
+            )},
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(text = "Send Attendance")
+        }
     }
 }
+
+
 enum class Contents {
-    Home, Attendance, ShareResource, Roster
+    Home, Attendance, ShareResource,ManageCourses
 }
-@Composable
-fun MyCourseContent(modifier: Modifier = Modifier) {
-    Column(modifier = Modifier
-        .fillMaxSize()
-        .then(modifier)) {
-        Text(text = "This is My Course content")
 
-    }
-}
+
+
+
+
+
+
+
+

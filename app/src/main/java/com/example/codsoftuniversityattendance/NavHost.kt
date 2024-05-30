@@ -15,7 +15,11 @@ enum class Screens {
     TermsAndConditionsScreen,
     EditProfileScreen,
     ForgetPassWordScreen,
-    AddCourseScreen
+    AddCourseScreen,
+    UploadMaterialScreen,
+    AttendanceSendScreen,
+    RosterScreen
+
 }
 
 @Composable
@@ -47,5 +51,6 @@ fun ScreenContainer() {
         composable(route = Screens.AddCourseScreen.name) {
             RegisterForCourse(navController = navController, logInAndCreateViewModel = viewModel)
         }
+
     }
 }

@@ -62,6 +62,8 @@ fun EditProfileScreen(
     var showErrorForDoB by remember { mutableStateOf(false) }
     var showErrorForPhoneNumber by remember { mutableStateOf(false) }
     var isPressed by  remember { mutableStateOf(false) }
+
+    val departments by logInAndCreateViewModel.directories.collectAsState()
     val colorFirstName = animateColorAsState(
         targetValue = if (isPressed && logInAndCreateViewModel.firstNameForUpdate.isEmpty()) {
             showErrorForFirstName = true
@@ -263,15 +265,18 @@ fun EditProfileScreen(
                     singleLine = true,
 
                     )
+                var showMenu by remember {
+                    mutableStateOf(false)
+                }
                 CustomDropDownMenu(
-                    expanded = logInAndCreateViewModel.showGenderMenu,
-                    onExpandedChange = { logInAndCreateViewModel.onShowGenderMenu },
+                    expanded = showMenu,
+                    onExpandedChange = {showMenu = it},
                     selectedItem = logInAndCreateViewModel.sexForUpdate,
                     onDismissedRequest = {
-                        logInAndCreateViewModel.showGenderMenu = false
+                        showMenu= false
                     },
                     modifier = Modifier.weight(0.5f),
-                    options = logInAndCreateViewModel.genders,
+                    options = listOf("Male", "Female"),
                     attachedCompose = {
                         OutlinedTextField(
                             readOnly = true,
@@ -285,7 +290,7 @@ fun EditProfileScreen(
                                 )
                             },
                             trailingIcon = {
-                                IconButton(onClick = { logInAndCreateViewModel.showGenderMenu = true}) {
+                                IconButton(onClick = { showMenu = true}) {
                                     Icon(imageVector = Icons.Default.ArrowDropDown, contentDescription = null, tint = Color.Green)
 
                                 }
@@ -362,15 +367,20 @@ fun EditProfileScreen(
                 singleLine = true,
 
                 )
+            var showMenu by remember {
+                mutableStateOf(false)
+            }
             CustomDropDownMenu(
-                expanded = logInAndCreateViewModel.showDepartmentMenu,
-                onExpandedChange = { logInAndCreateViewModel.onShowDepartmentMenu},
+                expanded = showMenu,
+                onExpandedChange = {
+                    //logInAndCreateViewModel.fetchDirectories()
+                    showMenu = it},
                 selectedItem = logInAndCreateViewModel.departmentForUpdate,
                 onDismissedRequest = {
-                    logInAndCreateViewModel.showDepartmentMenu = false
+                    showMenu= false
                 },
                 modifier = Modifier.fillMaxWidth(),
-                options = logInAndCreateViewModel.departments,
+                options = departments,
                 attachedCompose = {
                     OutlinedTextField(
                         readOnly = true,
@@ -400,6 +410,7 @@ fun EditProfileScreen(
                 addLeadingIcon = false
             ) { selectedList ->
                 logInAndCreateViewModel.departmentForUpdate = selectedList
+                logInAndCreateViewModel.fetchSubdirectories(selectedList)
             }
             Spacer(modifier = Modifier.height(100.dp))
             Button(onClick = {
@@ -416,7 +427,8 @@ fun EditProfileScreen(
                         dateOfBirth = logInAndCreateViewModel.dateOfBirthForUpdate,
                         phoneNumber = logInAndCreateViewModel.phoneNumberForUpdate,
                         department = logInAndCreateViewModel.departmentForUpdate,
-                        sex = logInAndCreateViewModel.sexForUpdate
+                        sex = logInAndCreateViewModel.sexForUpdate,
+                        email = logInAndCreateViewModel.emailAsId
                     )
 
                 }
